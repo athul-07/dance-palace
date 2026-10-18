@@ -1,31 +1,21 @@
 services:
-  db:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_DB: dance_palace
-      POSTGRES_USER: dance
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
-    volumes:
-      - postgres:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dance -d dance_palace"]
-      interval: 5s
-      retries: 10
   app:
-    build: .
+    build:
+      context: .
+      args:
+        SUPABASE_URL: ${SUPABASE_URL:?Set SUPABASE_URL}
+        SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY:?Set SUPABASE_PUBLISHABLE_KEY}
     ports: ["3001:3001"]
     environment:
-      DATABASE_URL: postgres://dance:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/dance_palace
-      DATABASE_SSL: disable
-      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      DATABASE_URL: ${DATABASE_URL:?Set Supabase DATABASE_URL}
+      DATABASE_SSL: verify
+      SUPABASE_URL: ${SUPABASE_URL:?Set SUPABASE_URL}
+      SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY:?Set SUPABASE_PUBLISHABLE_KEY}
+      SUPABASE_SECRET_KEY: ${SUPABASE_SECRET_KEY:?Set SUPABASE_SECRET_KEY}
+      SUPABASE_JWKS_URL: ${SUPABASE_JWKS_URL:?Set SUPABASE_JWKS_URL}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN}
-      COOKIE_SECURE: "true"
       NODE_ENV: production
       SEED_DEMO: "false"
-      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
-      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?Set BOOTSTRAP_ADMIN_PASSWORD}
-    depends_on:
-      db:
-        condition: service_healthy
-volumes:
-  postgres:
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}

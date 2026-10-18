@@ -2,6 +2,7 @@ import axios from "axios";
 import { create } from "zustand";
 import { QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiErrorMessage } from "./error-message";
+import { supabase } from "./supabase";
 export const useStore = create((set) => ({
   user: null,
   theme: localStorage.getItem("dp-theme") || "light",
@@ -21,8 +22,11 @@ export const useStore = create((set) => ({
       return { theme };
     }),
 }));
-export const api = axios.create({ baseURL: "/api", withCredentials: true });
-api.interceptors.request.use((c) => {
+export const api = axios.create({ baseURL: "/api" });
+api.interceptors.request.use(async (c) => {
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw error;
+  if (data.session) c.headers.Authorization = `Bearer ${data.session.access_token}`;
   if (c.method !== "get") useStore.setState((s) => ({ saving: s.saving + 1 }));
   return c;
 });

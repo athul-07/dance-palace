@@ -28,23 +28,22 @@ The production build is served by Express at **http://localhost:3001**. Do not r
 
 ## Deployment
 
-Deploy the Node server (or the included Docker image), not just the Vite `dist` folder. The Express server serves the frontend and `/api` routes from the same origin. A static-only deployment does not provide the backend: requests to `/api/auth/login` will return 404. If the frontend stays on a static host, deploy this server separately and configure that host to proxy every `/api/*` request to the server.
+Deploy the Node server (or the included Docker image), not just the Vite `dist` folder. The Express server serves the frontend and `/api` routes from the same origin. A static-only deployment does not provide the backend: requests to `/api/auth/me` will return 404. If the frontend stays on a static host, deploy this server separately and configure that host to proxy every `/api/*` request to the server.
 
 Set these environment variables on the **backend**:
 
 - `NODE_ENV=production`
 - `DATABASE_URL`: persistent PostgreSQL connection URL. For Supabase, copy the PostgreSQL URI from **Project → Connect → Session pooler** (recommended if the backend host does not support IPv6) or use the direct connection when supported. Do not use the Supabase project URL, publishable key, or secret key as the database URL. The app runs its migrations automatically on startup.
-- `JWT_SECRET`: unique random secret, at least 32 characters.
+- `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, and `SUPABASE_JWKS_URL`: copy these from Supabase API/Auth settings. Keep the secret key backend-only; the publishable key is embedded in the frontend bundle and is designed to be public.
 - `PUBLIC_ORIGIN`: exact HTTPS origin, with no trailing slash or path (for this deployment: `https://dance.wabisabibymk.com`).
-- `COOKIE_SECURE=true`
 - `SEED_DEMO=false`
 - `TRUST_PROXY`: number of trusted reverse-proxy hops (usually `1` behind one proxy; use `0` when directly exposed).
 
-For an empty database, optionally set `BOOTSTRAP_ADMIN_USERNAME` and `BOOTSTRAP_ADMIN_PASSWORD`; production requires the initial password to be at least 12 characters. These variables do not reset an existing account. Do not deploy a database containing the default `admin123` password. `DATABASE_SSL` defaults to `verify`; keep it at `verify` for Supabase. `PORT` is normally supplied by the host and `HOST` defaults to `0.0.0.0`.
+The frontend build also needs `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`; Vite embeds only these two public values. For a new, empty app database, set `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` before the first startup. This creates a confirmed Supabase Auth user and assigns it the app administrator role. The password must be at least 12 characters in production. These values do not reset existing accounts. `DATABASE_SSL` defaults to `verify`; keep it at `verify` for Supabase. `PORT` is normally supplied by the host and `HOST` defaults to `0.0.0.0`.
 
-`docker compose up --build` starts the app and PostgreSQL after you provide `JWT_SECRET`, `PUBLIC_ORIGIN`, a strong `POSTGRES_PASSWORD`, and a strong `BOOTSTRAP_ADMIN_PASSWORD` in the environment. Compose disables PostgreSQL TLS only on its private Docker network. The database volume persists across container restarts. For embedded development or single-instance deployment, keep `PGLITE_PATH` on a persistent disk. For multiple application instances, use external PostgreSQL.
+Existing app users must be linked to Supabase Auth accounts once. After applying migrations, set each user's `supabase_user_id` to the matching UUID from Supabase Auth. In Supabase SQL Editor, inspect `auth.users.id` and update the matching `public.users` row by its email. A valid Supabase login without a matching app user row does not receive application access.
 
-Only the theme preference lives in localStorage. All school records live in the backend. Authentication uses an HttpOnly SameSite cookie, bcrypt password hashes, login rate limiting, and server permission checks. Backups include password hashes and personal records and are administrator-only. Restoring a backup requires it to contain the currently signed-in administrator ID. Development sessions expire on a server restart unless `JWT_SECRET` is configured.
+Only the Supabase Auth session lives in browser storage. All school records live in PostgreSQL. Supabase Auth handles passwords and session renewal; the backend verifies access tokens with the project JWKS and checks each user's app role in PostgreSQL. Migration `004_enable_rls.sql` enables Row Level Security without client policies, keeping browser clients from reading app tables through the Supabase Data API; the backend connects with the database owner role. The Supabase secret key is used only by the backend to administer Auth accounts. Backups include personal records and app role mappings and are administrator-only. A restore must preserve the signed-in administrator's ID and Supabase Auth mapping.
 
 ## Modules
 
@@ -90,7 +89,7 @@ Key endpoints, all under `/api`:
 
 | Resource | Operations |
 | --- | --- |
-| `/auth/login`, `/auth/logout`, `/auth/me` | Session lifecycle |
+| `/auth/me` | Return the current Supabase-authenticated app user |
 | `/transactions`, `/transactions/:id` | List/filter, create, edit, delete |
 | `/transaction-defaults` | Carry-forward, next fee window and ID |
 | `/batches`, `/students`, `/students/:id` | Batch metadata and rosters |

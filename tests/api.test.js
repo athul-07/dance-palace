@@ -1,49 +1,88 @@
 import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:http";
+import { generateKeyPairSync } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
-let server, base, cookie, staffCookie, db, temp;
+import jwt from "jsonwebtoken";
+let server, jwksServer, base, adminToken, staffToken, db, temp;
+let tokenFor;
+const adminAuthId = "00000000-0000-4000-8000-000000000001";
+const staffAuthId = "00000000-0000-4000-8000-000000000002";
 before(async () => {
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+  });
+  const jwk = publicKey.export({ format: "jwk" });
+  jwk.kid = "test-key";
+  jwk.alg = "RS256";
+  jwk.use = "sig";
+  jwksServer = createServer((req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ keys: [jwk] }));
+  });
+  await new Promise((resolve) => jwksServer.listen(0, "127.0.0.1", resolve));
+  const jwksAddress = jwksServer.address();
+  const supabaseUrl = `http://127.0.0.1:${jwksAddress.port}`;
   temp = await mkdtemp(path.join(os.tmpdir(), "dance-test-"));
   process.env.NODE_ENV = "test";
   process.env.DATABASE_URL = "";
   process.env.PUBLIC_ORIGIN = "";
+  process.env.SUPABASE_URL = supabaseUrl;
+  process.env.SUPABASE_PUBLISHABLE_KEY = "sb_publishable_test_key";
+  process.env.SUPABASE_SECRET_KEY = "sb_secret_test_key";
+  process.env.SUPABASE_JWKS_URL = `${supabaseUrl}/auth/v1/.well-known/jwks.json`;
   process.env.PGLITE_PATH = temp;
   process.env.SEED_DEMO = "false";
-  process.env.JWT_SECRET = "test-secret-that-is-at-least-32-characters";
-  process.env.BOOTSTRAP_ADMIN_USERNAME = "admin";
-  process.env.BOOTSTRAP_ADMIN_PASSWORD = "admin123";
+  tokenFor = (id, email) =>
+    jwt.sign(
+      {
+        sub: id,
+        email,
+        role: "authenticated",
+        aud: "authenticated",
+        iss: `${supabaseUrl}/auth/v1`,
+      },
+      privateKey,
+      { algorithm: "RS256", keyid: "test-key", expiresIn: "1h" },
+    );
+  adminToken = tokenFor(adminAuthId, "admin@test.example");
+  staffToken = tokenFor(staffAuthId, "staff@test.example");
   db = await import("../server/db.js");
   const { migrate } = await import("../server/migrate.js");
   const { seed } = await import("../server/services.js");
   await migrate();
+  await db.query(
+    "INSERT INTO users(username,role,supabase_user_id) VALUES($1,'admin',$2),($3,'staff',$4)",
+    ["admin@test.example", adminAuthId, "staff@test.example", staffAuthId],
+  );
   await seed();
   const { default: app } = await import("../server/app.js");
   server = app.listen(0, "127.0.0.1");
   await new Promise((r) => server.once("listening", r));
   base = "http://127.0.0.1:" + server.address().port;
-  const r = await fetch(base + "/api/auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: "admin", password: "admin123" }),
-  });
-  assert.equal(r.status, 200);
-  cookie = r.headers.get("set-cookie").split(";")[0];
 });
 after(async () => {
   await new Promise((r) => server?.close(r));
+  await new Promise((r) => jwksServer?.close(r));
   await db?.close();
   if (temp) await rm(temp, { recursive: true, force: true });
 });
-async function request(method, url, body, auth = cookie) {
+async function request(method, url, body, auth = adminToken) {
   const r = await fetch(base + "/api" + url, {
     method,
-    headers: { "Content-Type": "application/json", Cookie: auth },
+    headers: {
+      "Content-Type": "application/json",
+      ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
+    },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   return { status: r.status, data: await r.json() };
 }
+const authHeaders = (token = adminToken) => ({
+  Authorization: `Bearer ${token}`,
+});
 const tx = (id, changes = {}) => ({
   id,
   date: "2026-09-01",
@@ -64,6 +103,15 @@ const tx = (id, changes = {}) => ({
 });
 test("API authentication, propagation, reversal, reconciliation and overlap", async () => {
   assert.equal((await request("GET", "/batches", undefined, "")).status, 401);
+  assert.equal((await request("GET", "/auth/me")).data.role, "admin");
+  const unlinkedToken = tokenFor(
+    "00000000-0000-4000-8000-000000000099",
+    "unknown@test.example",
+  );
+  assert.equal(
+    (await request("GET", "/auth/me", undefined, unlinkedToken)).status,
+    403,
+  );
   assert.equal(
     (await request("POST", "/transactions", tx("DP-TEST"))).status,
     200,
@@ -130,22 +178,7 @@ test("API authentication, propagation, reversal, reconciliation and overlap", as
   );
 });
 test("server validation and staff restrictions cover sensitive operations", async () => {
-  assert.equal(
-    (
-      await request("POST", "/users", {
-        username: "staff",
-        password: "staff1234",
-        role: "staff",
-      })
-    ).status,
-    200,
-  );
-  const login = await fetch(base + "/api/auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: "staff", password: "staff1234" }),
-  });
-  staffCookie = login.headers.get("set-cookie").split(";")[0];
+  const staffAuth = staffToken;
   for (const [method, url, body] of [
     ["GET", "/users"],
     ["POST", "/students", { name: "Forbidden", batch: "Adult Ladies" }],
@@ -155,12 +188,12 @@ test("server validation and staff restrictions cover sensitive operations", asyn
     ["POST", "/import/backup", {}],
   ])
     assert.equal(
-      (await request(method, url, body, staffCookie)).status,
+      (await request(method, url, body, staffAuth)).status,
       403,
       method + " " + url,
     );
   assert.equal(
-    (await request("GET", "/transactions", undefined, staffCookie)).data.stats,
+    (await request("GET", "/transactions", undefined, staffAuth)).data.stats,
     null,
   );
   assert.equal(
@@ -169,7 +202,7 @@ test("server validation and staff restrictions cover sensitive operations", asyn
         "POST",
         "/transactions",
         tx("DP-STAFF", { balance: 10 }),
-        staffCookie,
+        staffAuth,
       )
     ).data.status,
     "Pending",
@@ -202,7 +235,7 @@ test("student register sync, new month generation, protected sheets and manual f
           BATCHES: "Kids Beginners",
           "BATCHES 2": "Indian Classical",
         },
-        staffCookie,
+        staffToken,
       )
     ).status,
     200,
@@ -213,7 +246,7 @@ test("student register sync, new month generation, protected sheets and manual f
     "POST",
     "/attendance/month",
     { year: 2027, month: "January" },
-    staffCookie,
+    staffToken,
   );
   const sheets = (await request("GET", "/attendance?year=2027")).data.sheets;
   assert.equal(sheets.length, 10);
@@ -341,7 +374,7 @@ test("legacy workbook import preserves cached dates and normalizes fee windows",
   form.append("mode", "fees");
   let r = await fetch(base + "/api/import/excel", {
     method: "POST",
-    headers: { Cookie: cookie },
+    headers: authHeaders(),
     body: form,
   });
   assert.equal(r.status, 200, await r.text());
@@ -370,7 +403,7 @@ test("legacy workbook import preserves cached dates and normalizes fee windows",
   form.append("mode", "manager");
   r = await fetch(base + "/api/import/excel", {
     method: "POST",
-    headers: { Cookie: cookie },
+    headers: authHeaders(),
     body: form,
   });
   assert.equal(r.status, 200, await r.text());
@@ -463,12 +496,12 @@ test("JSON backup and Excel export can be restored", async () => {
   );
   let res = await fetch(base + "/api/import/backup", {
     method: "POST",
-    headers: { Cookie: cookie },
+    headers: authHeaders(),
     body: form,
   });
   assert.equal(res.status, 200, await res.text());
   const x = await fetch(base + "/api/export/excel", {
-    headers: { Cookie: cookie },
+    headers: authHeaders(),
   });
   assert.equal(x.status, 200);
   const bytes = await x.arrayBuffer();
@@ -477,7 +510,7 @@ test("JSON backup and Excel export can be restored", async () => {
   form.append("file", new Blob([bytes]), "workbook.xlsx");
   res = await fetch(base + "/api/import/excel", {
     method: "POST",
-    headers: { Cookie: cookie },
+    headers: authHeaders(),
     body: form,
   });
   assert.equal(res.status, 200, await res.text());

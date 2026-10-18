@@ -9,8 +9,8 @@ import {
   transactionStatus,
 } from "../shared/domain.js";
 import { atomic, query, rows } from "./db.js";
-import bcrypt from "bcryptjs";
 import { config } from './config.js';
+import { getSupabaseAdmin } from "./supabase.js";
 export const fail = (message, status = 400) =>
   Object.assign(new Error(message), { status });
 export async function ensureStudent(q, batch, name, fields = {}) {
@@ -157,15 +157,33 @@ export function blankGrid(students, year, month) {
 }
 export async function seed() {
   if (!(await rows("SELECT id FROM users LIMIT 1")).length) {
-    if(config.production && (config.bootstrapPassword.length<12 || config.bootstrapPassword==='admin123')) throw new Error('Set BOOTSTRAP_ADMIN_PASSWORD to at least 12 characters for the initial administrator.');
-    await query(
-      "INSERT INTO users(username,password_hash,role) VALUES($1,$2,$3)",
-      [config.bootstrapUsername, await bcrypt.hash(config.bootstrapPassword, 12), "admin"],
-    );
-  }
-  if(config.production) {
-    for(const user of await rows('SELECT password_hash FROM users'))
-      if(await bcrypt.compare('admin123',user.password_hash)) throw new Error('Change the default admin123 password before deploying or migrating this database.');
+    if (
+      !config.bootstrapAdminEmail ||
+      !config.bootstrapAdminPassword ||
+      (config.production &&
+        (config.bootstrapAdminPassword.length < 12 ||
+          config.bootstrapAdminPassword === "admin123"))
+    )
+      throw new Error(
+        "Set BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD before initializing an empty database; production passwords must be at least 12 characters.",
+      );
+    const { data, error } = await getSupabaseAdmin().auth.admin.createUser({
+      email: config.bootstrapAdminEmail,
+      password: config.bootstrapAdminPassword,
+      email_confirm: true,
+    });
+    if (error) throw new Error(`Could not create bootstrap Supabase user: ${error.message}`);
+    try {
+      await query(
+        "INSERT INTO users(username,role,supabase_user_id) VALUES($1,$2,$3)",
+        [config.bootstrapAdminEmail, "admin", data.user.id],
+      );
+    } catch (error) {
+      const { error: cleanupError } = await getSupabaseAdmin().auth.admin.deleteUser(data.user.id);
+      if (cleanupError)
+        console.error("Could not remove bootstrap Supabase user after database insert failed:", cleanupError.message);
+      throw error;
+    }
   }
   for (const name of BATCHES)
     await query(

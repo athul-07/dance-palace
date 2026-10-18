@@ -649,7 +649,7 @@ export function Users() {
       >
         <AddButton
           onClick={() => {
-            E({ username: "", password: "", role: "staff" });
+            E({ email: "", password: "", role: "staff" });
             S(false);
           }}
         >
@@ -662,7 +662,7 @@ export function Users() {
           {data.data?.map((u) => (
             <tr key={u.id}>
               <td>
-                <strong>{u.username}</strong>
+                <strong>{u.email}</strong>
                 {u.id === current.id && <small className="cell-sub">You</small>}
               </td>
               <td>
@@ -683,7 +683,7 @@ export function Users() {
                     u.id !== current.id
                       ? () =>
                           ConfirmDelete({
-                            title: `Delete ${u.username}?`,
+                            title: `Delete ${u.email}?`,
                             onConfirm: () => write("delete", "/users/" + u.id),
                           })
                       : undefined
@@ -714,7 +714,8 @@ export function Users() {
                     .getState()
                     .setUser({
                       ...current,
-                      username: edit.username,
+                      username: edit.email,
+                      email: edit.email,
                       role: edit.role,
                     });
                 }
@@ -726,12 +727,12 @@ export function Users() {
             }}
           >
             <div className="modal-body">
-              <Field label="Username" required>
+              <Field label="Email" required>
                 <input
-                  minLength="2"
+                  type="email"
                   required
-                  value={edit.username}
-                  onChange={(e) => E({ ...edit, username: e.target.value })}
+                  value={edit.email}
+                  onChange={(e) => E({ ...edit, email: e.target.value })}
                 />
               </Field>
               <Field label="Role" required>

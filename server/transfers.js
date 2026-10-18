@@ -67,18 +67,22 @@ async function backup() {
     };
   });
 }
-async function restore(data, adminId) {
+async function restore(data, adminUser) {
   if (data.format !== "dance-palace" || data.version !== 1 || !data.tables)
     throw fail("Unsupported backup format");
   for (const name of TABLE_NAMES)
     if (!Array.isArray(data.tables[name])) throw fail(`Missing table: ${name}`);
-  if (!data.tables.users.some((u) => u.role === "admin" && u.id === adminId))
+  if (
+    !data.tables.users.some(
+      (u) =>
+        u.role === "admin" &&
+        u.id === adminUser.id &&
+        u.supabase_user_id === adminUser.supabase_user_id,
+    )
+  )
     throw fail("Backup must preserve the signed-in administrator");
   for (const u of data.tables.users)
-    if (
-      !["admin", "staff"].includes(u.role) ||
-      !/^\$2[aby]\$/.test(u.password_hash)
-    )
+    if (!["admin", "staff"].includes(u.role) || !u.supabase_user_id)
       throw fail("Invalid user data");
   await atomic(async (q) => {
     const columns = {};
@@ -193,7 +197,7 @@ export function installTransfers(app, admin, transactionSchema) {
       } catch {
         throw fail("Invalid JSON file");
       }
-      await restore(data, req.user.id);
+      await restore(data, req.user);
       res.json({ ok: true, message: "Backup restored" });
     },
   );
@@ -411,7 +415,7 @@ export function installTransfers(app, admin, transactionSchema) {
             throw fail("Invalid workbook backup data");
           }
         }
-        await restore(data, req.user.id);
+        await restore(data, req.user);
         return res.json({ ok: true, message: "Complete workbook restored" });
       }
       const mode = req.body.mode || "fees";

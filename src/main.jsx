@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { api, client, useData, useStore, useWrite } from "./api";
 import { apiErrorMessage } from "./error-message";
+import { supabase } from "./supabase";
 import { Button, Field, Modal, Select } from "./components";
 import { MONTHS } from "../shared/domain";
 import { Dashboard, Batches } from "./fees";
@@ -64,7 +65,7 @@ const TABS = {
   users: [["", "User management"]],
 };
 function Login() {
-  const [username, U] = useState(""),
+  const [email, U] = useState(""),
     [password, P] = useState(""),
     [show, S] = useState(false),
     [busy, B] = useState(false),
@@ -113,23 +114,28 @@ function Login() {
               B(true);
               E("");
               try {
-                setUser(
-                  (await api.post("/auth/login", { username, password })).data,
-                );
+                const { error } = await supabase.auth.signInWithPassword({
+                  email,
+                  password,
+                });
+                if (error) throw error;
+                setUser((await api.get("/auth/me")).data);
               } catch (e) {
+                await supabase.auth.signOut();
                 E(apiErrorMessage(e, "Unable to connect to the server."));
               } finally {
                 B(false);
               }
             }}
           >
-            <Field label="Username" required>
+            <Field label="Email" required>
               <input
-                value={username}
+                type="email"
+                value={email}
                 onChange={(e) => U(e.target.value)}
-                autoComplete="username"
+                autoComplete="email"
                 required
-                placeholder="Enter your username"
+                placeholder="Enter your email"
               />
             </Field>
             <Field label="Password" required>
@@ -148,7 +154,7 @@ function Login() {
               </div>
             </Field>
             {error && <div className="notice error">{error}</div>}
-            <Button disabled={busy || !username || !password}>
+            <Button disabled={busy || !email || !password}>
               {busy ? "Signing in…" : "Sign in"}
               <ArrowRight size={18} />
             </Button>
@@ -227,7 +233,7 @@ function Transfer({ onClose }) {
         </Field>
         <div className="notice">
           Keep a JSON backup before importing. Backups contain personal data and
-          password hashes; store them privately.
+          app role mappings; store them privately.
         </div>
       </div>
       <div className="modal-footer">
@@ -278,12 +284,34 @@ function App() {
   const location = useLocation();
   const section = location.pathname.split("/")[1] || "fees";
   useEffect(() => {
-    api
-      .get("/auth/me")
-      .then((r) => setUser(r.data))
-      .catch(() => {})
-      .finally(() => R(true));
-  }, []);
+    let active = true;
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") {
+        setUser(null);
+        client.clear();
+      }
+    });
+    supabase.auth
+      .getSession()
+      .then(async ({ data, error }) => {
+        if (error) throw error;
+        if (data.session) setUser((await api.get("/auth/me")).data);
+      })
+      .catch(async (error) => {
+        if (active && error.response?.status !== 401)
+          useStore.getState().setError(error);
+        await supabase.auth.signOut();
+      })
+      .finally(() => {
+        if (active) R(true);
+      });
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, [setUser]);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
@@ -387,7 +415,7 @@ function App() {
               title="Logout"
               aria-label="Logout"
               onClick={async () => {
-                await api.post("/auth/logout");
+                await supabase.auth.signOut();
                 setUser(null);
                 client.clear();
               }}

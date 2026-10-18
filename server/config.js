@@ -1,19 +1,27 @@
 import 'dotenv/config';
-import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 export function readConfig(env = process.env) {
   const production = env.NODE_ENV === 'production';
   const databaseUrl = env.DATABASE_URL || '';
-  const jwtSecret = env.JWT_SECRET || (production ? '' : randomBytes(48).toString('hex'));
   const publicOrigin = env.PUBLIC_ORIGIN || '';
+  const supabaseUrl = env.SUPABASE_URL || '';
+  const supabasePublishableKey = env.SUPABASE_PUBLISHABLE_KEY || '';
+  const supabaseSecretKey = env.SUPABASE_SECRET_KEY || '';
+  const supabaseJwksUrl = env.SUPABASE_JWKS_URL || '';
+  const bootstrapAdminEmail = env.BOOTSTRAP_ADMIN_EMAIL || '';
+  const bootstrapAdminPassword = env.BOOTSTRAP_ADMIN_PASSWORD || '';
   if (production) {
     if (!databaseUrl) throw new Error('Production requires DATABASE_URL: use the PostgreSQL connection string from Supabase Database > Connect, not SUPABASE_URL or an API key.');
-    if (jwtSecret.length < 32 || /replace|example|change.?me/i.test(jwtSecret)) throw new Error('Set a unique JWT_SECRET of at least 32 characters.');
     let url;
     try { url = new URL(publicOrigin); } catch { throw new Error('PUBLIC_ORIGIN must be your HTTPS origin.'); }
     if (url.protocol !== 'https:' || url.origin !== publicOrigin || url.username || url.password) throw new Error('PUBLIC_ORIGIN must be an HTTPS origin without a trailing slash or path.');
-    if (env.COOKIE_SECURE === 'false') throw new Error('Production session cookies must be secure.');
     if (env.SEED_DEMO === 'true') throw new Error('Demo seeding is disabled in production.');
+    if (!supabaseUrl || !supabasePublishableKey || !supabaseSecretKey || !supabaseJwksUrl)
+      throw new Error('Production requires SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, SUPABASE_SECRET_KEY, and SUPABASE_JWKS_URL.');
+    const projectUrl = new URL(supabaseUrl);
+    const jwksUrl = new URL(supabaseJwksUrl);
+    if (projectUrl.protocol !== 'https:' || jwksUrl.protocol !== 'https:')
+      throw new Error('Production Supabase URLs must use HTTPS.');
   }
   if (databaseUrl) {
     const u = new URL(databaseUrl);
@@ -24,7 +32,7 @@ export function readConfig(env = process.env) {
   if (!['verify','disable'].includes(sslMode)) throw new Error('DATABASE_SSL must be verify or disable.');
   const proxy = env.TRUST_PROXY || '0';
   if (!/^\d+$/.test(proxy) || Number(proxy) > 5) throw new Error('TRUST_PROXY must be an explicit hop count from 0 to 5.');
-  return {production,databaseUrl,jwtSecret,publicOrigin,secureCookies:production || env.COOKIE_SECURE === 'true',trustProxy:Number(proxy),seedDemo:!production && env.SEED_DEMO === 'true',bootstrapUsername:env.BOOTSTRAP_ADMIN_USERNAME || 'admin',bootstrapPassword:env.BOOTSTRAP_ADMIN_PASSWORD || (production?'':'admin123'),sslMode,sslCaFile:env.DATABASE_SSL_CA_FILE,port:Number(env.PORT)||3001,host:env.HOST || '0.0.0.0'};
+  return {production,databaseUrl,publicOrigin,supabaseUrl,supabasePublishableKey,supabaseSecretKey,supabaseJwksUrl,bootstrapAdminEmail,bootstrapAdminPassword,trustProxy:Number(proxy),seedDemo:!production && env.SEED_DEMO === 'true',sslMode,sslCaFile:env.DATABASE_SSL_CA_FILE,port:Number(env.PORT)||3001,host:env.HOST || '0.0.0.0'};
 }
 export function poolOptions(config) {
   const url = new URL(config.databaseUrl);
