@@ -1,0 +1,18 @@
+name: Database availability monitor
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+jobs:
+  database-health:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query authenticated database health endpoint
+        env:
+          MONITOR_URL: ${{ secrets.MONITOR_URL }}
+          MONITOR_SECRET: ${{ secrets.MONITOR_SECRET }}
+        run: |
+          test -n "$MONITOR_URL" && test -n "$MONITOR_SECRET"
+          curl --fail --silent --show-error --retry 2 --max-time 30 \
+            -H "Authorization: Bearer $MONITOR_SECRET" \
+            "$MONITOR_URL/api/health/database"
