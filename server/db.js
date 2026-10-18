@@ -3,9 +3,12 @@ import { PGlite } from "@electric-sql/pglite";
 import pg from "pg";
 import path from "node:path";
 import { mkdirSync } from "node:fs";
+import { config, poolOptions } from './config.js';
 let database;
-if (process.env.DATABASE_URL)
-  database = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+if (config.databaseUrl) {
+  database = new pg.Pool(poolOptions(config));
+  database.on('error', () => console.error(JSON.stringify({event:'database_pool_error'})));
+}
 else {
   const storage = path.resolve(process.env.PGLITE_PATH || "./data/postgres");
   mkdirSync(storage, { recursive: true });
@@ -24,7 +27,7 @@ export const one = async (sql, params = []) => (await rows(sql, params))[0];
 // Serialize embedded transactions; use a dedicated connection for external PostgreSQL.
 export function atomic(fn) {
   const run = async () => {
-    const client = process.env.DATABASE_URL
+    const client = config.databaseUrl
       ? await database.connect()
       : database;
     const q = (s, p = []) => client.query(s, p);

@@ -10,6 +10,7 @@ import {
 } from "../shared/domain.js";
 import { atomic, query, rows } from "./db.js";
 import bcrypt from "bcryptjs";
+import { config } from './config.js';
 export const fail = (message, status = 400) =>
   Object.assign(new Error(message), { status });
 export async function ensureStudent(q, batch, name, fields = {}) {
@@ -155,11 +156,17 @@ export function blankGrid(students, year, month) {
   ];
 }
 export async function seed() {
-  if (!(await rows("SELECT id FROM users LIMIT 1")).length)
+  if (!(await rows("SELECT id FROM users LIMIT 1")).length) {
+    if(config.production && (config.bootstrapPassword.length<12 || config.bootstrapPassword==='admin123')) throw new Error('Set BOOTSTRAP_ADMIN_PASSWORD to at least 12 characters for the initial administrator.');
     await query(
       "INSERT INTO users(username,password_hash,role) VALUES($1,$2,$3)",
-      ["admin", await bcrypt.hash("admin123", 12), "admin"],
+      [config.bootstrapUsername, await bcrypt.hash(config.bootstrapPassword, 12), "admin"],
     );
+  }
+  if(config.production) {
+    for(const user of await rows('SELECT password_hash FROM users'))
+      if(await bcrypt.compare('admin123',user.password_hash)) throw new Error('Change the default admin123 password before deploying or migrating this database.');
+  }
   for (const name of BATCHES)
     await query(
       "INSERT INTO batches(sheet_name,display_name,is_event) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
@@ -211,7 +218,7 @@ export async function seed() {
     "INSERT INTO attendance_years(year) VALUES(2026) ON CONFLICT DO NOTHING",
   );
   if (
-    process.env.SEED_DEMO === "true" &&
+    config.seedDemo &&
     !(await rows("SELECT key FROM setup WHERE key='demo_seeded'")).length
   ) {
     await atomic(async (q) => {
