@@ -1,0 +1,26 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: dance_palace
+      POSTGRES_USER: dance
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dance_local_only}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dance -d dance_palace"]
+      interval: 5s
+      retries: 10
+  app:
+    build: .
+    ports: ["3001:3001"]
+    environment:
+      DATABASE_URL: postgres://dance:${POSTGRES_PASSWORD:-dance_local_only}@db:5432/dance_palace
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      NODE_ENV: production
+      SEED_DEMO: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  postgres:
