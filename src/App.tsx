@@ -340,7 +340,7 @@ export default function App() {
                 if (adding === "year") setYear(Number(addValue));
                 else setMonth(Number(addValue));
                 setAdding(null);
-              } catch {}
+              } catch { }
             }}
           >
             <Field
@@ -446,7 +446,7 @@ function Login() {
           </div>
           <div className="eyebrow">YOUR STUDIO, SIMPLIFIED</div>
           <h2>Welcome back.</h2>
-          <p>Sign in to your Dance Palace workspace.</p>
+          <p></p>
           {error && (
             <div className="notice error" role="alert">
               {error}
@@ -482,7 +482,7 @@ function Login() {
             </div>
           </Field>
           <button className="primary login-submit" disabled={busy}>
-            {busy ? "Signing in…" : "Sign in to workspace"}
+            {busy ? "Signing in…" : "Sign in to Dance Palace workspace"}
             <ChevronRight size={18} />
           </button>
           <p className="login-help">
