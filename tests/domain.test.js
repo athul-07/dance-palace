@@ -10,6 +10,25 @@ import {
   salarySummary,
   feeLabel,
 } from "../shared/domain.js";
+import { apiErrorMessage } from "../src/error-message.js";
+
+test("API errors are normalized to renderable messages", () => {
+  assert.equal(
+    apiErrorMessage({
+      response: { data: { error: { code: "INVALID", message: "Try again" } } },
+    }),
+    "Try again",
+  );
+  assert.equal(
+    apiErrorMessage({ code: "NOT_FOUND", message: "Missing route" }),
+    "Missing route",
+  );
+  assert.match(
+    apiErrorMessage({ response: { status: 404 } }),
+    /Route \/api to the Dance Palace server/,
+  );
+});
+
 test("six-month window crosses December with real years", () => {
   const run = monthRun("September", 2026, 6);
   assert.deepEqual(run, [

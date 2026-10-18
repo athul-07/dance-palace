@@ -6,6 +6,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
+import { config } from "./config.js";
 import { query, rows, one, atomic } from "./db.js";
 import {
   fail,
@@ -28,16 +29,11 @@ import {
 } from "../shared/domain.js";
 import { installTransfers } from "./transfers.js";
 const app = express();
-const secret =
-  process.env.JWT_SECRET ||
-  (process.env.NODE_ENV === "production"
-    ? null
-    : randomBytes(48).toString("hex"));
-if (!secret) throw new Error("JWT_SECRET required in production");
+const secret = config.jwtSecret;
+app.set("trust proxy", config.trustProxy);
 app.use(
   helmet({
-    contentSecurityPolicy:
-      process.env.NODE_ENV === "production" ? undefined : false,
+    contentSecurityPolicy: config.production ? undefined : false,
   }),
 );
 app.use(express.json({ limit: "30mb" }));
@@ -46,7 +42,9 @@ app.use("/api", (req, res, next) => {
   if (
     !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
     req.headers.origin &&
-    new URL(req.headers.origin).host !== req.headers.host
+    (config.publicOrigin
+      ? new URL(req.headers.origin).origin !== config.publicOrigin
+      : new URL(req.headers.origin).host !== req.headers.host)
   )
     throw fail("Cross-origin mutation denied", 403);
   next();
@@ -73,7 +71,7 @@ app.post(
       {
         httpOnly: true,
         sameSite: "strict",
-        secure: process.env.COOKIE_SECURE === "true",
+        secure: config.secureCookies,
         maxAge: 43200000,
       },
     );

@@ -6,9 +6,14 @@ import path from "node:path";
 let server, base, cookie, staffCookie, db, temp;
 before(async () => {
   temp = await mkdtemp(path.join(os.tmpdir(), "dance-test-"));
+  process.env.NODE_ENV = "test";
+  process.env.DATABASE_URL = "";
+  process.env.PUBLIC_ORIGIN = "";
   process.env.PGLITE_PATH = temp;
   process.env.SEED_DEMO = "false";
   process.env.JWT_SECRET = "test-secret-that-is-at-least-32-characters";
+  process.env.BOOTSTRAP_ADMIN_USERNAME = "admin";
+  process.env.BOOTSTRAP_ADMIN_PASSWORD = "admin123";
   db = await import("../server/db.js");
   const { migrate } = await import("../server/migrate.js");
   const { seed } = await import("../server/services.js");

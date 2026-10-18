@@ -9,6 +9,7 @@ import {
   Inbox,
 } from "lucide-react";
 import { useStore } from "./api";
+import { apiErrorMessage } from "./error-message";
 export function Button({ children, variant = "", className = "", ...props }) {
   return (
     <button className={`button ${variant} ${className}`} {...props}>
@@ -260,7 +261,7 @@ export function ErrorNotice({ query }) {
   return query?.isError ? (
     <div className="notice error">
       Unable to load data.{" "}
-      {query.error?.response?.data?.error || query.error?.message}
+      {apiErrorMessage(query.error, "Please try again.")}
       <Button variant="ghost" onClick={() => query.refetch()}>
         Retry
       </Button>

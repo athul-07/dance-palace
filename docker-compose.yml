@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: dance_palace
       POSTGRES_USER: dance
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dance_local_only}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
     volumes:
       - postgres:/var/lib/postgresql/data
     healthcheck:
@@ -15,10 +15,15 @@ services:
     build: .
     ports: ["3001:3001"]
     environment:
-      DATABASE_URL: postgres://dance:${POSTGRES_PASSWORD:-dance_local_only}@db:5432/dance_palace
+      DATABASE_URL: postgres://dance:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/dance_palace
+      DATABASE_SSL: disable
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN}
+      COOKIE_SECURE: "true"
       NODE_ENV: production
       SEED_DEMO: "false"
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?Set BOOTSTRAP_ADMIN_PASSWORD}
     depends_on:
       db:
         condition: service_healthy

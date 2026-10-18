@@ -28,6 +28,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { api, client, useData, useStore, useWrite } from "./api";
+import { apiErrorMessage } from "./error-message";
 import { Button, Field, Modal, Select } from "./components";
 import { MONTHS } from "../shared/domain";
 import { Dashboard, Batches } from "./fees";
@@ -116,7 +117,7 @@ function Login() {
                   (await api.post("/auth/login", { username, password })).data,
                 );
               } catch (e) {
-                E(e.response?.data?.error || "Unable to connect");
+                E(apiErrorMessage(e, "Unable to connect to the server."));
               } finally {
                 B(false);
               }

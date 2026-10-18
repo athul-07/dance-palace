@@ -28,9 +28,21 @@ The production build is served by Express at **http://localhost:3001**. Do not r
 
 ## Deployment
 
-Set a long random `JWT_SECRET`, `NODE_ENV=production`, and `DATABASE_URL`. Set `COOKIE_SECURE=true` behind HTTPS. Use a reverse proxy to serve the app and `/api` on the same origin. The server binds to `0.0.0.0`; `HOST` and `PORT` can override that.
+Deploy the Node server (or the included Docker image), not just the Vite `dist` folder. The Express server serves the frontend and `/api` routes from the same origin. A static-only deployment does not provide the backend: requests to `/api/auth/login` will return 404. If the frontend stays on a static host, deploy this server separately and configure that host to proxy every `/api/*` request to the server.
 
-`docker compose up --build` starts the app and PostgreSQL after you provide `JWT_SECRET` and a strong `POSTGRES_PASSWORD` in the environment. The database volume persists across container restarts. For embedded deployment, keep `PGLITE_PATH` on a persistent disk and use one application process. For multiple application instances, use external PostgreSQL. A production hosting account has not been configured; no public deployment is created.
+Set these environment variables on the **backend**:
+
+- `NODE_ENV=production`
+- `DATABASE_URL`: persistent PostgreSQL connection URL. For Supabase, copy the PostgreSQL URI from **Project → Connect → Session pooler** (recommended if the backend host does not support IPv6) or use the direct connection when supported. Do not use the Supabase project URL, publishable key, or secret key as the database URL. The app runs its migrations automatically on startup.
+- `JWT_SECRET`: unique random secret, at least 32 characters.
+- `PUBLIC_ORIGIN`: exact HTTPS origin, with no trailing slash or path (for this deployment: `https://dance.wabisabibymk.com`).
+- `COOKIE_SECURE=true`
+- `SEED_DEMO=false`
+- `TRUST_PROXY`: number of trusted reverse-proxy hops (usually `1` behind one proxy; use `0` when directly exposed).
+
+For an empty database, optionally set `BOOTSTRAP_ADMIN_USERNAME` and `BOOTSTRAP_ADMIN_PASSWORD`; production requires the initial password to be at least 12 characters. These variables do not reset an existing account. Do not deploy a database containing the default `admin123` password. `DATABASE_SSL` defaults to `verify`; keep it at `verify` for Supabase. `PORT` is normally supplied by the host and `HOST` defaults to `0.0.0.0`.
+
+`docker compose up --build` starts the app and PostgreSQL after you provide `JWT_SECRET`, `PUBLIC_ORIGIN`, a strong `POSTGRES_PASSWORD`, and a strong `BOOTSTRAP_ADMIN_PASSWORD` in the environment. Compose disables PostgreSQL TLS only on its private Docker network. The database volume persists across container restarts. For embedded development or single-instance deployment, keep `PGLITE_PATH` on a persistent disk. For multiple application instances, use external PostgreSQL.
 
 Only the theme preference lives in localStorage. All school records live in the backend. Authentication uses an HttpOnly SameSite cookie, bcrypt password hashes, login rate limiting, and server permission checks. Backups include password hashes and personal records and are administrator-only. Restoring a backup requires it to contain the currently signed-in administrator ID. Development sessions expire on a server restart unless `JWT_SECRET` is configured.
 

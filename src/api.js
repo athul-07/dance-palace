@@ -1,6 +1,7 @@
 import axios from "axios";
 import { create } from "zustand";
 import { QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiErrorMessage } from "./error-message";
 export const useStore = create((set) => ({
   user: null,
   theme: localStorage.getItem("dp-theme") || "light",
@@ -8,7 +9,7 @@ export const useStore = create((set) => ({
   error: "",
   toast: "",
   setUser: (user) => set({ user }),
-  setError: (error) => set({ error }),
+  setError: (error) => set({ error: apiErrorMessage(error) }),
   notify: (toast) => {
     set({ toast });
     setTimeout(() => set({ toast: "" }), 4500);
@@ -58,7 +59,7 @@ export function useWrite() {
       useStore.getState().notify(message);
       return result;
     } catch (e) {
-      useStore.getState().setError(e.response?.data?.error || e.message);
+      useStore.getState().setError(e);
       throw e;
     }
   };

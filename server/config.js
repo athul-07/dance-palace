@@ -7,7 +7,7 @@ export function readConfig(env = process.env) {
   const jwtSecret = env.JWT_SECRET || (production ? '' : randomBytes(48).toString('hex'));
   const publicOrigin = env.PUBLIC_ORIGIN || '';
   if (production) {
-    if (!databaseUrl) throw new Error('Production requires DATABASE_URL (PostgreSQL).');
+    if (!databaseUrl) throw new Error('Production requires DATABASE_URL: use the PostgreSQL connection string from Supabase Database > Connect, not SUPABASE_URL or an API key.');
     if (jwtSecret.length < 32 || /replace|example|change.?me/i.test(jwtSecret)) throw new Error('Set a unique JWT_SECRET of at least 32 characters.');
     let url;
     try { url = new URL(publicOrigin); } catch { throw new Error('PUBLIC_ORIGIN must be your HTTPS origin.'); }
