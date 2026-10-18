@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./env.js";
 import { PGlite } from "@electric-sql/pglite";
 import pg from "pg";
 import path from "node:path";

@@ -18,8 +18,62 @@ before(async () => {
   jwk.kid = "test-key";
   jwk.alg = "RS256";
   jwk.use = "sig";
-  jwksServer = createServer((req, res) => {
+  jwksServer = createServer(async (req, res) => {
     res.setHeader("Content-Type", "application/json");
+    if (req.url === "/auth/v1/user") {
+      if (req.headers.authorization !== `Bearer ${adminToken}`) {
+        res.statusCode = 401;
+        res.end(JSON.stringify({ msg: "Invalid session" }));
+      } else
+        res.end(
+          JSON.stringify({ id: adminAuthId, email: "admin@test.example" }),
+        );
+      return;
+    }
+    if (req.url.startsWith("/rest/v1/setup?")) {
+      res.end(JSON.stringify({ key: "categories" }));
+      return;
+    }
+    if (req.url.startsWith("/rest/v1/users?")) {
+      res.end(JSON.stringify([{ id: 1 }]));
+      return;
+    }
+    if (req.url === `/auth/v1/admin/users/${adminAuthId}`) {
+      res.end(
+        JSON.stringify({
+          user: { id: adminAuthId, email: "admin@test.example" },
+        }),
+      );
+      return;
+    }
+    if (req.url === "/auth/v1/token?grant_type=password") {
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      const credentials = JSON.parse(body);
+      if (
+        credentials.email !== "admin@test.example" ||
+        credentials.password !== "admin123"
+      ) {
+        res.statusCode = 400;
+        res.end(
+          JSON.stringify({
+            code: "invalid_credentials",
+            msg: "Invalid login credentials",
+          }),
+        );
+        return;
+      }
+      res.end(
+        JSON.stringify({
+          access_token: adminToken,
+          refresh_token: "test-refresh",
+          token_type: "bearer",
+          expires_in: 3600,
+          user: { id: adminAuthId },
+        }),
+      );
+      return;
+    }
     res.end(JSON.stringify({ keys: [jwk] }));
   });
   await new Promise((resolve) => jwksServer.listen(0, "127.0.0.1", resolve));
@@ -29,6 +83,8 @@ before(async () => {
   process.env.NODE_ENV = "test";
   process.env.DATABASE_URL = "";
   process.env.PUBLIC_ORIGIN = "";
+  process.env.APP_ORIGIN = "";
+  process.env.CRON_SECRET = "test-cron-secret-at-least-16-chars";
   process.env.SUPABASE_URL = supabaseUrl;
   process.env.SUPABASE_PUBLISHABLE_KEY = "sb_publishable_test_key";
   process.env.SUPABASE_SECRET_KEY = "sb_secret_test_key";
@@ -82,6 +138,62 @@ async function request(method, url, body, auth = adminToken) {
 }
 const authHeaders = (token = adminToken) => ({
   Authorization: `Bearer ${token}`,
+});
+test("username login resolves the linked identity and rejects invalid credentials", async () => {
+  const login = await request(
+    "POST",
+    "/auth/login",
+    { username: " ADMIN@TEST.EXAMPLE ", password: "admin123" },
+    "",
+  );
+  assert.equal(login.status, 200);
+  assert.equal(login.data.access_token, adminToken);
+  assert.equal(login.data.refresh_token, "test-refresh");
+  for (const credentials of [
+    { username: "missing", password: "admin123" },
+    { username: "admin@test.example", password: "wrong" },
+  ]) {
+    const result = await request("POST", "/auth/login", credentials, "");
+    assert.equal(result.status, 401);
+    assert.equal(result.data.error, "Invalid username or password");
+  }
+});
+test("cookie login is verified by Supabase Auth and cron bypasses user auth", async () => {
+  const login = await fetch(base + "/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username: "admin@test.example",
+      password: "admin123",
+    }),
+  });
+  assert.equal(login.status, 200);
+  const cookies = login.headers.getSetCookie();
+  assert.ok(cookies.length > 0);
+  const me = await fetch(base + "/api/auth/me", {
+    headers: {
+      Cookie: cookies.map((cookie) => cookie.split(";")[0]).join("; "),
+    },
+  });
+  assert.equal(me.status, 200);
+  assert.equal((await me.json()).role, "admin");
+  assert.match(me.headers.get("cache-control"), /no-store/);
+  assert.equal(
+    (await request("GET", "/cron/keepalive", undefined, "")).status,
+    401,
+  );
+  assert.equal(
+    (
+      await request(
+        "GET",
+        "/cron/keepalive",
+        undefined,
+        process.env.CRON_SECRET,
+      )
+    ).status,
+    200,
+  );
+  assert.equal((await request("GET", "/health", undefined, "")).status, 200);
 });
 const tx = (id, changes = {}) => ({
   id,

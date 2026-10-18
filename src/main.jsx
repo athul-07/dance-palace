@@ -65,7 +65,7 @@ const TABS = {
   users: [["", "User management"]],
 };
 function Login() {
-  const [email, U] = useState(""),
+  const [username, U] = useState(""),
     [password, P] = useState(""),
     [show, S] = useState(false),
     [busy, B] = useState(false),
@@ -114,10 +114,11 @@ function Login() {
               B(true);
               E("");
               try {
-                const { error } = await supabase.auth.signInWithPassword({
-                  email,
+                const { data } = await api.post("/auth/login", {
+                  username,
                   password,
                 });
+                const { error } = await supabase.auth.setSession(data);
                 if (error) throw error;
                 setUser((await api.get("/auth/me")).data);
               } catch (e) {
@@ -128,14 +129,14 @@ function Login() {
               }
             }}
           >
-            <Field label="Email" required>
+            <Field label="Username" required>
               <input
-                type="email"
-                value={email}
+                type="text"
+                value={username}
                 onChange={(e) => U(e.target.value)}
-                autoComplete="email"
+                autoComplete="username"
                 required
-                placeholder="Enter your email"
+                placeholder="Enter your username"
               />
             </Field>
             <Field label="Password" required>
@@ -154,7 +155,7 @@ function Login() {
               </div>
             </Field>
             {error && <div className="notice error">{error}</div>}
-            <Button disabled={busy || !email || !password}>
+            <Button disabled={busy || !username || !password}>
               {busy ? "Signing in…" : "Sign in"}
               <ArrowRight size={18} />
             </Button>

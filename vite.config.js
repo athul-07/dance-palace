@@ -2,14 +2,18 @@ import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const supabaseUrl = env.SUPABASE_URL || process.env.SUPABASE_URL || "";
+  const supabaseUrl =
+    process.env.VITE_SUPABASE_URL || env.VITE_SUPABASE_URL ||
+    process.env.SUPABASE_URL || env.SUPABASE_URL || "";
   const publishableKey =
-    env.SUPABASE_PUBLISHABLE_KEY ||
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    env.VITE_SUPABASE_PUBLISHABLE_KEY ||
     process.env.SUPABASE_PUBLISHABLE_KEY ||
+    env.SUPABASE_PUBLISHABLE_KEY ||
     "";
   if (!supabaseUrl || !publishableKey)
     throw new Error(
-      "Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY for the frontend build.",
+      "Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY for the frontend build.",
     );
   return {
     plugins: [react()],

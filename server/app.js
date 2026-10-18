@@ -1,9 +1,15 @@
 import express from "express";
+import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { config } from "./config.js";
-import { getSupabaseAdmin, verifySupabaseAccessToken } from "./supabase.js";
+import {
+  authEmailForUsername,
+  getSupabaseAdmin,
+  getSupabaseAuthClient,
+  verifySupabaseAccessToken,
+} from "./supabase.js";
 import { query, rows, one, atomic } from "./db.js";
 import {
   fail,
@@ -25,6 +31,7 @@ import {
   today,
 } from "../shared/domain.js";
 import { installTransfers } from "./transfers.js";
+import { keepalive, health } from "./monitoring.js";
 const app = express();
 app.set("trust proxy", config.trustProxy);
 app.use(
@@ -33,6 +40,8 @@ app.use(
   }),
 );
 app.use(express.json({ limit: "30mb" }));
+app.all("/api/cron/keepalive", keepalive);
+app.all("/api/health", health);
 app.use("/api", (req, res, next) => {
   if (
     !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
@@ -47,25 +56,98 @@ app.use("/api", (req, res, next) => {
 const safeUser = (u) => ({
   id: u.id,
   username: u.username,
-  email: u.username,
   role: u.role,
 });
-app.use("/api", async (req, res, next) => {
-  const authorization = req.get("authorization") || "";
-  const match = authorization.match(/^Bearer\s+(\S+)$/i);
-  if (!match) return res.status(401).json({ error: "Please sign in" });
+app.post(
+  "/api/auth/login",
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many login attempts. Please try again later." },
+  }),
+  async (req, res) => {
+    const { username, password } = z
+      .object({
+        username: z.string().trim().min(1).max(254),
+        password: z.string().min(1).max(1024),
+      })
+      .parse(req.body);
+    const appUser = await one(
+      "SELECT * FROM users WHERE lower(username)=lower($1)",
+      [username],
+    );
+    if (!appUser?.supabase_user_id)
+      return res.status(401).json({ error: "Invalid username or password" });
 
-  const { data: auth, error } = await verifySupabaseAccessToken(match[1]);
-  if (error) {
-    if (error.status >= 500) {
-      console.error("Supabase token verification failed:", error.message);
+    const { data: authResult, error: lookupError } =
+      await getSupabaseAdmin().auth.admin.getUserById(appUser.supabase_user_id);
+    if (lookupError) {
+      console.error(
+        "Could not look up Supabase login identity:",
+        lookupError.message,
+      );
       return res
         .status(503)
-        .json({ error: "Authentication verification is temporarily unavailable" });
+        .json({ error: "Authentication is temporarily unavailable" });
     }
-    return res.status(401).json({ error: "Invalid or expired session" });
+    if (!authResult.user?.email)
+      return res.status(401).json({ error: "Invalid username or password" });
+
+    const { data, error } = await getSupabaseAuthClient(
+      req,
+      res,
+    ).auth.signInWithPassword({
+      email: authResult.user.email,
+      password,
+    });
+    if (error || !data.session || data.user.id !== appUser.supabase_user_id)
+      return res.status(401).json({ error: "Invalid username or password" });
+    res.set("Cache-Control", "no-store");
+    res.json({
+      access_token: data.session.access_token,
+      refresh_token: data.session.refresh_token,
+    });
+  },
+);
+app.use("/api", async (req, res, next) => {
+  res.set("Cache-Control", "private, no-store");
+  const authorization = req.get("authorization") || "";
+  const match = authorization.match(/^Bearer\s+(\S+)$/i);
+  let userId;
+  if (!authorization) {
+    // Cookie sessions must be validated with Auth, never trusted from storage.
+    const { data, error } = await getSupabaseAuthClient(
+      req,
+      res,
+    ).auth.getUser();
+    if (error || !data.user) {
+      const unavailable =
+        error?.status >= 500 || error?.name === "AuthRetryableFetchError";
+      return res.status(unavailable ? 503 : 401).json({
+        error: unavailable
+          ? "Authentication verification is temporarily unavailable"
+          : "Please sign in",
+      });
+    }
+    userId = data.user.id;
+  } else {
+    if (!match) return res.status(401).json({ error: "Invalid session" });
+    const { data: auth, error } = await verifySupabaseAccessToken(match[1]);
+    if (error) {
+      if (error.status >= 500) {
+        console.error("Supabase token verification failed:", error.message);
+        return res
+          .status(503)
+          .json({
+            error: "Authentication verification is temporarily unavailable",
+          });
+      }
+      return res.status(401).json({ error: "Invalid or expired session" });
+    }
+    userId = auth.userClaims?.id;
   }
-  const userId = auth.userClaims?.id;
   if (!userId) return res.status(401).json({ error: "Invalid session" });
   req.user = await one("SELECT * FROM users WHERE supabase_user_id=$1", [
     userId,
@@ -73,7 +155,9 @@ app.use("/api", async (req, res, next) => {
   if (!req.user)
     return res
       .status(403)
-      .json({ error: "This Supabase account has no Dance Palace role assigned" });
+      .json({
+        error: "This Supabase account has no Dance Palace role assigned",
+      });
   next();
 });
 const admin = (req, res, next) => {
@@ -821,23 +905,25 @@ app.delete("/api/reviews/:id", admin, async (req, res) => {
 });
 app.get("/api/users", admin, async (req, res) =>
   res.json(
-    (await rows("SELECT id,username,role FROM users ORDER BY id")).map((u) => ({
-      id: u.id,
-      email: u.username,
-      role: u.role,
-    })),
+    (await rows("SELECT id,username,role FROM users ORDER BY id")).map(
+      safeUser,
+    ),
   ),
 );
 app.post("/api/users", admin, async (req, res) => {
   const b = z
     .object({
-      email: z.string().trim().email(),
+      username: z
+        .string()
+        .trim()
+        .toLowerCase()
+        .regex(/^[a-z0-9._-]{3,32}$/),
       password: z.string().min(8),
       role: z.enum(["admin", "staff"]),
     })
     .parse(req.body);
   const { data, error } = await getSupabaseAdmin().auth.admin.createUser({
-    email: b.email,
+    email: authEmailForUsername(b.username),
     password: b.password,
     email_confirm: true,
   });
@@ -845,13 +931,12 @@ app.post("/api/users", admin, async (req, res) => {
   try {
     const user = await one(
       "INSERT INTO users(username,role,supabase_user_id) VALUES($1,$2,$3) RETURNING *",
-      [b.email, b.role, data.user.id],
+      [b.username, b.role, data.user.id],
     );
     res.json(safeUser(user));
   } catch (error) {
-    const { error: cleanupError } = await getSupabaseAdmin().auth.admin.deleteUser(
-      data.user.id,
-    );
+    const { error: cleanupError } =
+      await getSupabaseAdmin().auth.admin.deleteUser(data.user.id);
     if (cleanupError)
       console.error(
         "Could not remove Supabase user after app user creation failed:",
@@ -863,7 +948,11 @@ app.post("/api/users", admin, async (req, res) => {
 app.put("/api/users/:id", admin, async (req, res) => {
   const b = z
     .object({
-      email: z.string().trim().email(),
+      username: z
+        .string()
+        .trim()
+        .toLowerCase()
+        .regex(/^[a-z0-9._-]{3,32}$/),
       password: z.string().min(8).optional().or(z.literal("")),
       role: z.enum(["admin", "staff"]),
     })
@@ -871,7 +960,10 @@ app.put("/api/users/:id", admin, async (req, res) => {
   const old = await one("SELECT * FROM users WHERE id=$1", [req.params.id]);
   if (!old) throw fail("User not found", 404);
   if (!old.supabase_user_id)
-    throw fail("This user must be linked to a Supabase Auth account first", 409);
+    throw fail(
+      "This user must be linked to a Supabase Auth account first",
+      409,
+    );
   if (
     old.role === "admin" &&
     b.role !== "admin" &&
@@ -880,7 +972,7 @@ app.put("/api/users/:id", admin, async (req, res) => {
     throw fail("Cannot demote the last administrator");
 
   const changes = {
-    email: b.email,
+    email: authEmailForUsername(b.username),
     email_confirm: true,
     ...(b.password ? { password: b.password } : {}),
   };
@@ -893,7 +985,7 @@ app.put("/api/users/:id", admin, async (req, res) => {
     await atomic(async (q) => {
       await q("LOCK TABLE users IN EXCLUSIVE MODE");
       await q("UPDATE users SET username=$1,role=$2 WHERE id=$3", [
-        b.email,
+        b.username,
         b.role,
         old.id,
       ]);
@@ -919,7 +1011,10 @@ app.delete("/api/users/:id", admin, async (req, res) => {
   )
     throw fail("Cannot delete the last administrator");
   if (!user.supabase_user_id)
-    throw fail("This user must be linked to a Supabase Auth account first", 409);
+    throw fail(
+      "This user must be linked to a Supabase Auth account first",
+      409,
+    );
   const { error } = await getSupabaseAdmin().auth.admin.deleteUser(
     user.supabase_user_id,
   );

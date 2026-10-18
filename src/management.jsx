@@ -649,7 +649,7 @@ export function Users() {
       >
         <AddButton
           onClick={() => {
-            E({ email: "", password: "", role: "staff" });
+            E({ username: "", password: "", role: "staff" });
             S(false);
           }}
         >
@@ -662,7 +662,7 @@ export function Users() {
           {data.data?.map((u) => (
             <tr key={u.id}>
               <td>
-                <strong>{u.email}</strong>
+                <strong>{u.username}</strong>
                 {u.id === current.id && <small className="cell-sub">You</small>}
               </td>
               <td>
@@ -683,7 +683,7 @@ export function Users() {
                     u.id !== current.id
                       ? () =>
                           ConfirmDelete({
-                            title: `Delete ${u.email}?`,
+                            title: `Delete ${u.username}?`,
                             onConfirm: () => write("delete", "/users/" + u.id),
                           })
                       : undefined
@@ -714,8 +714,7 @@ export function Users() {
                     .getState()
                     .setUser({
                       ...current,
-                      username: edit.email,
-                      email: edit.email,
+                      username: edit.username,
                       role: edit.role,
                     });
                 }
@@ -727,12 +726,12 @@ export function Users() {
             }}
           >
             <div className="modal-body">
-              <Field label="Email" required>
+              <Field label="Username" required>
                 <input
-                  type="email"
                   required
-                  value={edit.email}
-                  onChange={(e) => E({ ...edit, email: e.target.value })}
+                  autoComplete="username"
+                  value={edit.username}
+                  onChange={(e) => E({ ...edit, username: e.target.value })}
                 />
               </Field>
               <Field label="Role" required>

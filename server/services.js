@@ -10,7 +10,7 @@ import {
 } from "../shared/domain.js";
 import { atomic, query, rows } from "./db.js";
 import { config } from './config.js';
-import { getSupabaseAdmin } from "./supabase.js";
+import { authEmailForUsername, getSupabaseAdmin } from "./supabase.js";
 export const fail = (message, status = 400) =>
   Object.assign(new Error(message), { status });
 export async function ensureStudent(q, batch, name, fields = {}) {
@@ -158,17 +158,15 @@ export function blankGrid(students, year, month) {
 export async function seed() {
   if (!(await rows("SELECT id FROM users LIMIT 1")).length) {
     if (
-      !config.bootstrapAdminEmail ||
+      !config.bootstrapAdminUsername ||
       !config.bootstrapAdminPassword ||
-      (config.production &&
-        (config.bootstrapAdminPassword.length < 12 ||
-          config.bootstrapAdminPassword === "admin123"))
+      config.bootstrapAdminPassword.length < 6
     )
       throw new Error(
-        "Set BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD before initializing an empty database; production passwords must be at least 12 characters.",
+        "Set BOOTSTRAP_ADMIN_USERNAME and BOOTSTRAP_ADMIN_PASSWORD (at least 6 characters) before initializing an empty database.",
       );
     const { data, error } = await getSupabaseAdmin().auth.admin.createUser({
-      email: config.bootstrapAdminEmail,
+      email: authEmailForUsername(config.bootstrapAdminUsername),
       password: config.bootstrapAdminPassword,
       email_confirm: true,
     });
@@ -176,7 +174,7 @@ export async function seed() {
     try {
       await query(
         "INSERT INTO users(username,role,supabase_user_id) VALUES($1,$2,$3)",
-        [config.bootstrapAdminEmail, "admin", data.user.id],
+        [config.bootstrapAdminUsername.toLowerCase(), "admin", data.user.id],
       );
     } catch (error) {
       const { error: cleanupError } = await getSupabaseAdmin().auth.admin.deleteUser(data.user.id);
