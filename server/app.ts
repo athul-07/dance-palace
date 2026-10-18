@@ -7,6 +7,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import multer from "multer";
 import { atomic, rows, type DB } from "./db.js";
+import { databaseTlsError } from "./db-config.js";
 import {
   allTransactions,
   reconcile,
@@ -1016,6 +1017,7 @@ export function createApp(db: any) {
   app.use((e: any, _req: any, res: any, _next: any) => {
     const validation = e instanceof z.ZodError;
     const conflict = e.code === "23505";
+    const tlsError = databaseTlsError(e);
     const databaseUnavailable =
       [
         "ECONNREFUSED",
@@ -1041,19 +1043,21 @@ export function createApp(db: any) {
           ? 400
           : e.status || 503;
     res.status(status).json({
-      error: validation
-        ? e.issues
-            .map((x: any) => `${x.path.join(".")}: ${x.message}`)
-            .join("; ")
-        : constraint
-          ? "Invalid data: a referenced record is missing or a field violates a database constraint."
-          : conflict
-            ? "This record already exists."
-            : databaseUnavailable
-              ? "Database unavailable or not configured. Check DATABASE_URL, run database/supabase.sql, and restore a paused project from the Supabase dashboard."
-              : status < 500
-                ? e.message
-                : "Server could not complete this request. Check server logs.",
+      error:
+        tlsError ||
+        (validation
+          ? e.issues
+              .map((x: any) => `${x.path.join(".")}: ${x.message}`)
+              .join("; ")
+          : constraint
+            ? "Invalid data: a referenced record is missing or a field violates a database constraint."
+            : conflict
+              ? "This record already exists."
+              : databaseUnavailable
+                ? "Database unavailable or not configured. Check DATABASE_URL, run database/supabase.sql, and restore a paused project from the Supabase dashboard."
+                : status < 500
+                  ? e.message
+                  : "Server could not complete this request. Check server logs."),
     });
     if (status >= 500) console.error(e.message);
   });

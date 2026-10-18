@@ -32,6 +32,10 @@ VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_ZAGzjB40_sZcvQT3_te7ug_muY6VR7p
 
 TLS certificate verification is enabled for hosted PostgreSQL. If your environment needs Supabase's root certificate, download it from the dashboard and set `DATABASE_CA_PATH`; do not disable certificate verification.
 
+For Vercel, a local certificate path is not available on the deployed function. If login logs show **self-signed certificate in certificate chain**, download your project's root certificate from **Supabase → Database → Settings → SSL Configuration → Download certificate**. Open the downloaded `.crt`/`.cer` file in a text editor and copy the entire PEM text, including `-----BEGIN CERTIFICATE-----` and `-----END CERTIFICATE-----`. Add it as `DATABASE_CA_CERT` in **Vercel → Settings → Environment Variables → Production**, then deploy the updated code. Real line breaks and literal `\n` escapes are supported. Leave `DATABASE_CA_PATH` blank when using this variable. See [Supabase's certificate instructions](https://supabase.com/docs/guides/platform/ssl-enforcement).
+
+The backend supplies that CA to PostgreSQL with certificate and hostname verification enabled. SSL query parameters in `DATABASE_URL` are removed by the connection configuration so they cannot override the supplied CA. The app now reports certificate failures explicitly instead of returning an unexplained login error. A `401` from `/api/auth/me` before login is expected; a `503` from `/api/auth/login` is not.
+
 ## Supabase inactivity pausing
 
 There is **no SQL query that disables Supabase Free project pausing**, and code inside an already paused database cannot wake it up. [Supabase's documented policy](https://supabase.com/docs/guides/platform/free-project-pausing) says low activity over seven days can pause Free projects. A paid plan removes inactivity pausing. To recover a paused project, restore it in the dashboard.

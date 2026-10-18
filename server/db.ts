@@ -1,6 +1,6 @@
 import "dotenv/config";
 import pg from "pg";
-import { readFileSync } from "node:fs";
+import { databaseConfig } from "./db-config.js";
 pg.types.setTypeParser(1082, (v) => v);
 pg.types.setTypeParser(1700, (v) => Number(v));
 export type DB = {
@@ -9,25 +9,7 @@ export type DB = {
     params?: any[],
   ) => Promise<{ rows: any[]; rowCount?: number | null }>;
 };
-export const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
-  options: "-c search_path=dance_palace,public",
-  max: process.env.VERCEL === "1" ? 2 : 10,
-  idleTimeoutMillis: 10000,
-  allowExitOnIdle: process.env.VERCEL === "1",
-  connectionTimeoutMillis: 10000,
-  statement_timeout: 30000,
-  ssl:
-    process.env.DATABASE_URL?.includes("localhost") ||
-    process.env.DATABASE_URL?.includes("127.0.0.1")
-      ? false
-      : {
-          rejectUnauthorized: true,
-          ...(process.env.DATABASE_CA_PATH
-            ? { ca: readFileSync(process.env.DATABASE_CA_PATH, "utf8") }
-            : {}),
-        },
-});
+export const pool = new pg.Pool(databaseConfig());
 export async function atomic<T>(
   db: any,
   fn: (q: DB) => Promise<T>,
