@@ -22,6 +22,7 @@ import {
 import { api, client, notify, useApp, useData, useWrite } from "./api";
 import { Field, Modal, Select } from "./components";
 import { MONTHS } from "../shared/rules";
+import { apiErrorMessage } from "../shared/api-errors";
 import { Dashboard, Batches } from "./Fees";
 import { ManagerTable, Templates, Worklog } from "./Manager";
 import { Attendance } from "./Attendance";
@@ -434,9 +435,7 @@ function Login() {
               await api.post("/auth/login", { username, password });
               await client.invalidateQueries();
             } catch (e: any) {
-              setError(
-                e.response?.data?.error || "Unable to connect to the server.",
-              );
+              setError(apiErrorMessage(e));
             } finally {
               setBusy(false);
             }

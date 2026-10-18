@@ -26,6 +26,7 @@ const tx = (id: string, month = 9, category = "6 Month Fees") => ({
   fee_months: [{ year: 2026, month }],
 });
 before(async () => {
+  process.env.NODE_ENV = "test";
   process.env.JWT_SECRET = "test-secret-with-at-least-thirty-two-characters";
   process.env.APP_ORIGIN = "http://localhost:5173";
   db = new PGlite();

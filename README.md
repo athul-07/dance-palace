@@ -19,6 +19,8 @@ On macOS/Linux use `npm` instead of `npm.cmd`. Windows PowerShell execution poli
 
 Alternatively, after setting `DATABASE_URL`, run `npm.cmd run db:migrate` to execute the same SQL through the backend connection. Do either the SQL Editor setup or this command; both are idempotent.
 
+If SQL Editor reports `relation "users" does not exist`, run the entire updated `database/supabase.sql` in a new query, without selecting only part of it. All table references now explicitly use the `dance_palace` schema, so they do not depend on the editor's search path. Verify setup with `SELECT username, role FROM dance_palace.users;`. Do not use `SELECT * FROM users` in a separate editor query unless you first set the schema search path. Existing data and changed passwords are preserved when re-running the complete setup.
+
 The supplied public configuration is included:
 
 ```dotenv
@@ -83,6 +85,26 @@ Unrecognized source sheets and extra columns are retained in the `import_sources
 **Export Excel** creates Transactions, twelve original-name fee sheets in PLAN/AMOUNT/C-G/P-D groups, Setup, Manager sheets, Templates, Progress Report and worklog sheets. Its hidden structured payload preserves all data including attendance and archived source sheets for lossless re-import; account password hashes are excluded from Excel. The admin-only JSON backup includes users and bcrypt hashes. Attendance can also be exported separately per year from its screen; sheet names are shortened and made unique within Excel's limits.
 
 ## Build, tests and deployment
+
+### Vercel deployment
+
+Deploy the complete repository, including root `api/index.ts` and `vercel.json`. The Vite build produces the frontend in `dist`; the root API entry deploys Express as a Vercel Node function. `npm start` is not used by Vercel. Deploying only `dist` cannot serve login or other API requests.
+
+In Vercel project settings, use the repository root as **Root Directory**, **Vite** as the framework, `npm run build` as the build command, and `dist` as the output directory. Use Node.js 22. Add these server environment variables for the **Production** environment:
+
+```dotenv
+APP_ORIGIN=https://dance.wabisabibymk.com
+NODE_ENV=production
+DATABASE_URL=your-supabase-session-pooler-connection-string
+JWT_SECRET=your-generated-random-secret
+MONITOR_SECRET=your-generated-monitor-secret
+```
+
+Keep the supplied `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` for the frontend. Vercel manages request ports; `PORT` is not needed there. Use the Supabase session pooler URL (port 5432) with this app's PostgreSQL session search path.
+
+Push the changed project files to the connected Git branch and deploy that new commit. Redeploying an older commit will not add the missing API entry. After deployment, visit `https://dance.wabisabibymk.com/api/health`: it must return `{"status":"ok"}`. Before login, `/api/auth/me` should return **401** with `{"error":"Please sign in"}`, which is expected. A Vercel **404** means the API function or routing configuration is still missing from the deployed revision. A function **500/503** should be diagnosed from Vercel function logs and server environment variables.
+
+The rewrites route `/api/*` to Express and frontend section URLs to `index.html`, so refreshing a React Router page also works. See [Vercel Node functions](https://vercel.com/docs/functions/runtimes/node-js) and [rewrites](https://vercel.com/docs/routing/rewrites).
 
 ```powershell
 npm.cmd test

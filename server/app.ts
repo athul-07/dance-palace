@@ -30,6 +30,7 @@ import {
 } from "./transfer.js";
 export function createApp(db: any) {
   const app = express();
+  if (process.env.VERCEL === "1") app.set("trust proxy", 1);
   const secret = process.env.JWT_SECRET || "";
   if (secret.length < 32)
     throw new Error(

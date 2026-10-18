@@ -7,6 +7,7 @@ import { spawn } from "node:child_process";
 import { createApp } from "../server/app.js";
 
 // Isolated PostgreSQL test database. Never reads or mutates the hosted database.
+process.env.NODE_ENV = "development";
 process.env.JWT_SECRET = "browser-test-secret-not-for-production-use";
 process.env.APP_ORIGIN = "http://127.0.0.1:5175";
 const db = new PGlite();
@@ -62,6 +63,28 @@ try {
     .filter({ visible: true })
     .first()
     .fill("admin123");
+  // Reproduce the hosting error payload that previously crashed React (#31).
+  for (const status of [404, 503]) {
+    await page.route(
+      "**/api/auth/login",
+      (route) =>
+        route.fulfill({
+          status,
+          contentType: "application/json",
+          body: JSON.stringify({
+            error: { code: "PLATFORM_ERROR", message: "Service unavailable" },
+          }),
+        }),
+      { times: 1 },
+    );
+    await page.getByRole("button", { name: "Sign in to workspace" }).click();
+    await expect(page.getByRole("alert")).toContainText(
+      status === 404 ? "backend API was not found" : "Service unavailable",
+    );
+    await expect(
+      page.getByRole("heading", { name: "Welcome back." }),
+    ).toBeVisible();
+  }
   await page.getByRole("button", { name: "Sign in to workspace" }).click();
   await expect(
     page.getByRole("heading", { name: "A clear view of your studio." }),

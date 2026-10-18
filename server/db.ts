@@ -12,7 +12,9 @@ export type DB = {
 export const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
   options: "-c search_path=dance_palace,public",
-  max: 10,
+  max: process.env.VERCEL === "1" ? 2 : 10,
+  idleTimeoutMillis: 10000,
+  allowExitOnIdle: process.env.VERCEL === "1",
   connectionTimeoutMillis: 10000,
   statement_timeout: 30000,
   ssl:

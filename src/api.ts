@@ -1,6 +1,7 @@
 import axios from "axios";
 import { create } from "zustand";
 import { QueryClient, useMutation, useQuery } from "@tanstack/react-query";
+import { apiErrorMessage } from "../shared/api-errors";
 export const useApp = create<{
   theme: string;
   pending: number;
@@ -24,7 +25,7 @@ api.interceptors.response.use(
     if (e.config?.method !== "get")
       useApp.setState((s) => ({ pending: Math.max(0, s.pending - 1) }));
     if (e.response?.status !== 401)
-      useApp.setState({ error: e.response?.data?.error || e.message });
+      useApp.setState({ error: apiErrorMessage(e) });
     else if (e.config?.url !== "/auth/login")
       client.setQueryData(["/auth/me", undefined], null);
     return Promise.reject(e);
